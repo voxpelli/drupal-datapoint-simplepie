@@ -20,6 +20,7 @@ function datapoint_simplepie_datapoint_parser() {
     'fetch'                       => '_datapoint_simplepie_fetch',
     'cleanup'                     => '_datapoint_simplepie_cleanup',
     'update check'                => '_datapoint_simplepie_update_check',
+    'only add vertexes'           => TRUE,
   );
 }
 
@@ -207,8 +208,11 @@ function _datapoint_simplepie_grab_and_add($feedurl, &$result, $iterator = NULL,
     return;
   }
 
-  foreach ($parsed->items as $item) {
+  $length = count($parsed->items);
+  for ($i = $length - 1; $i > -1; $i--) {
+    $item = $parsed->items[$i];
     //Create/get result objects
+
     $point = $result->point(md5($item->options->guid));
     $vertex = new DatapointVertex($item->options->timestamp);
 
@@ -223,7 +227,7 @@ function _datapoint_simplepie_grab_and_add($feedurl, &$result, $iterator = NULL,
     }
 
     $vertex->value('url',        $item->options->original_url);
-    $vertex->value('published',  $item->options->timestamp);
+    $vertex->value('published',  $item->options->timestamp ? $item->options->timestamp : time());
     $vertex->value('iterator',   $iterator);
     $vertex->value('statevalue', $statevalue);
 
