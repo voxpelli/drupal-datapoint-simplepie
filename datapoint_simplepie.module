@@ -55,7 +55,7 @@ function _datapoint_simplepie_source_configuration_submit($values) {
   return array(
     'feed url' => $values['simplepie_feed_url'],
     'update limit' => $values['simplepie_update_limit'],
-    'no cleanup' => $values['simplepie_no_cleanup'],
+    'no cleanup' => $values['simplepie_do_cleanup'],
   );
 }
 
