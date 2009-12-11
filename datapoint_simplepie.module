@@ -34,6 +34,14 @@ function _datapoint_simplepie_source_configuration($configuration) {
     '#title'         => t('Feed source'),
     '#default_value' => $configuration['feed url'],
   );
+  if (module_exists('sets')) {
+    $settings['simplepie_help'] = array(
+      '#type' => 'item',
+      '#title'       => t('Iterative sets'),
+      '#description' => t("The following sets can be used in the feed source to fetch many different variations of the feed - one for each combination of items in the sets used."),
+      '#value'       => theme('sets_help'),
+    );
+  }
   $settings['simplepie_update_limit'] = array(
     '#type'          => 'select',
     '#options' => drupal_map_assoc(array(1800, 3600, 21600, 43200, 86400, 604800, 2419200), 'format_interval'),
@@ -75,49 +83,47 @@ function datapoint_simplepie_datapoint_cleanup() {
     $source->configuration = unserialize($source->configuration);
     // Check if the source is marked to be cleaned.
     if (!$source->configuration['source configuration']['no cleanup']) {
-      $matches = array();
       $feedurl = $source->configuration['source configuration']['feed url'];
-      if (preg_match('/\[(.+)\]/', $feedurl, $matches)) {
-        $key = $matches[1];
-        $iterators = _datapoint_simplepie_get_iterators();
-        if (array_key_exists($key, $iterators)) {
-          $removed = 0;
-          $result = db_query("SELECT v.statevalue, COUNT(v.vid) AS amount FROM {datapoint} d INNER JOIN {datapoint_simplepie_vertex} v ON d.vid = v.vid WHERE d.sid = %d AND v.iterator = '%s' GROUP BY v.statevalue HAVING amount > 15", $source->sid, $key);
-          while ($state = db_fetch_object($result)) {
-            $result_to_remove = db_query_range("SELECT d.pid, d.nid FROM {datapoint} d INNER JOIN {datapoint_simplepie_vertex} v ON d.vid = v.vid WHERE d.sid = %d AND v.iterator = '%s' AND v.statevalue = %s ORDER BY v.published ASC", $source->sid, $key, $state->statevalue, 0, $state->amount - 10);
+      $tags    = module_exists('sets') ? sets_string_get_tags($feedurl) : array();
+      if (!empty($tags)) {
+        $key = $tags[0];
+        $removed = 0;
+        $result = db_query("SELECT v.statevalue, COUNT(v.vid) AS amount FROM {datapoint} d INNER JOIN {datapoint_simplepie_vertex} v ON d.vid = v.vid WHERE d.sid = %d AND v.iterator = '%s' GROUP BY v.statevalue HAVING amount > 15", $source->sid, $key);
+        while ($state = db_fetch_object($result)) {
+          $result_to_remove = db_query_range("SELECT d.pid, d.nid FROM {datapoint} d INNER JOIN {datapoint_simplepie_vertex} v ON d.vid = v.vid WHERE d.sid = %d AND v.iterator = '%s' AND v.statevalue = %s ORDER BY v.published ASC", $source->sid, $key, $state->statevalue, 0, $state->amount - 10);
 
-            $pids = array();
-            while ($to_remove = db_fetch_object($result_to_remove)) {
-              $pids[] = $to_remove->pid;
-              node_delete($to_remove->nid);
-            }
-            $placeholders = db_placeholders($pids);
-            db_query("DELETE FROM {datapoint} WHERE pid IN ($placeholders)", $pids);
-            db_query("DELETE FROM {datapoint_simplepie_vertex} WHERE pid IN ($placeholders)", $pids);
-            $removed = $removed + $state->amount - 10;
+          $pids = array();
+          while ($to_remove = db_fetch_object($result_to_remove)) {
+            $pids[] = $to_remove->pid;
+            node_delete($to_remove->nid);
           }
-          if ($removed) {
-            watchdog('datapoint simplepie', 'Removed @count items from @url', array('@count' => $removed, '@url' => $feedurl));
+          $placeholders = db_placeholders($pids);
+          db_query("DELETE FROM {datapoint} WHERE pid IN ($placeholders)", $pids);
+          db_query("DELETE FROM {datapoint_simplepie_vertex} WHERE pid IN ($placeholders)", $pids);
+          $removed = $removed + $state->amount - 10;
+        }
+        if ($removed) {
+          watchdog('datapoint simplepie', 'Removed @count items from @url', array('@count' => $removed, '@url' => $feedurl));
+        }
+        $removed_status = TRUE;
+      }
+      else {
+        $amount = db_result(db_query("SELECT COUNT(v.vid) FROM {datapoint} d INNER JOIN {datapoint_simplepie_vertex} v ON d.vid = v.vid WHERE d.sid = %d", $source->sid, $key));
+        if ($amount > 10) {
+          $result_to_remove = db_query_range("SELECT d.pid, d.nid FROM {datapoint} d INNER JOIN {datapoint_simplepie_vertex} v ON d.vid = v.vid WHERE d.sid = %d ORDER BY v.published ASC", $source->sid, 0, $amount - 10);
+
+          $pids = array();
+          while ($to_remove = db_fetch_object($result_to_remove)) {
+            $pids[] = $to_remove->pid;
+            node_delete($to_remove->nid);
           }
-          return;
+
+          $placeholders = db_placeholders($pids);
+          db_query("DELETE FROM {datapoint} WHERE pid IN (' . $placeholders . ')", $pids);
+          db_query("DELETE FROM {datapoint_simplepie_vertex} WHERE pid IN (' . $placeholders . ')", $pids);
         }
+        watchdog('datapoint simplepie', 'Removed @count items from @url', array('@count' => $amount - 10, '@url' => $feedurl));
       }
-
-      $amount = db_result(db_query("SELECT COUNT(v.vid) FROM {datapoint} d INNER JOIN {datapoint_simplepie_vertex} v ON d.vid = v.vid WHERE d.sid = %d", $source->sid, $key));
-      if ($amount > 10) {
-        $result_to_remove = db_query_range("SELECT d.pid, d.nid FROM {datapoint} d INNER JOIN {datapoint_simplepie_vertex} v ON d.vid = v.vid WHERE d.sid = %d ORDER BY v.published ASC", $source->sid, 0, $amount - 10);
-
-        $pids = array();
-        while ($to_remove = db_fetch_object($result_to_remove)) {
-          $pids[] = $to_remove->pid;
-          node_delete($to_remove->nid);
-        }
-
-        $placeholders = db_placeholders($pids);
-        db_query("DELETE FROM {datapoint} WHERE pid IN (' . $placeholders . ')", $pids);
-        db_query("DELETE FROM {datapoint_simplepie_vertex} WHERE pid IN (' . $placeholders . ')", $pids);
-      }
-      watchdog('datapoint simplepie', 'Removed @count items from @url', array('@count' => $amount - 10, '@url' => $feedurl));
     }
   }
 }
@@ -146,66 +152,36 @@ function _datapoint_simplepie_fetch_time() {
   return max($time_limit - time(), 0);
 }
 
-function _datapoint_simplepie_get_iterators() {
-  static $iterators;
-
-  if (!isset($iterators)) {
-    //Returns all iterators and enables modules to alter it
-    $iterators = module_invoke_all('datapoint_simplepie_iterators');
-    drupal_alter('datapoint_simplepie_iterators', $iterators);
-  }
-
-  return $iterators;
-}
-
 /**
  * Assigned in datapoint_simplepie_datapoint_parser() - fetches the source
  */
 function _datapoint_simplepie_fetch($source, &$result) {
   $feedurl = $source['source configuration']['feed url'];
-  $matches = array();
-
-  if (preg_match('/\[(.+)\]/', $feedurl, $matches)) {
-    $key = $matches[1];
-    $iterators = _datapoint_simplepie_get_iterators();
-    if (array_key_exists($key, $iterators)) {
-      $state = isset($source['state']) ? $source['state'] : NULL;
-      $count = 0;
-
-      while (_datapoint_simplepie_fetch_time() && $replace = call_user_func_array($iterators[$key], array(&$state))) {
-        $currenturl = str_replace('[' . $key . ']', $replace, $feedurl);
-        $force_refresh = isset($source['force refresh']) && $source['force refresh'];
-        _datapoint_simplepie_grab_and_add($currenturl, $result, $key, $replace, $force_refresh);
-        $count = $count + 1;
-      }
-
-      watchdog('datapoint simplepie', 'Fetched @count feeds from @url', array('@count' => $count, '@url' => $feedurl));
-
-      if ($replace) {
-        $sid = $source['sid'];
-        unset($source['sid']);
-        $source['state'] = $state;
-        db_query("UPDATE {datapoint_source} SET configuration='%s' WHERE sid=%d", serialize($source), $sid);
-        return FALSE;
-      }
-      else {
-        $sid = $source['sid'];
-        unset($source['sid'], $source['state']);
-        db_query("UPDATE {datapoint_source} SET configuration='%s' WHERE sid=%d", serialize($source), $sid);
-      }
-
-      return;
-    }
+  if (module_exists('sets')) {
+    //TODO: Loop a few each time and check _datapoint_simplepie_fetch_time() for time left
+    $force_refresh = isset($source['force refresh']) && $source['force refresh'];
+    sets_string_iterate($feedurl, '_datapoint_simplepie_grab_and_add', $result, $force_refresh);
+    watchdog('datapoint simplepie', 'Fetched @url', array('@url' => $feedurl));
   }
-  _datapoint_simplepie_grab_and_add($feedurl, $result);
-  watchdog('datapoint simplepie', 'Fetched @url', array('@url' => $feedurl));
+  else {
+    _datapoint_simplepie_grab_and_add($feedurl, array(), $result);
+  }
 }
 
-function _datapoint_simplepie_grab_and_add($feedurl, &$result, $iterator = NULL, $statevalue = NULL, $force_refresh = FALSE) {
+function _datapoint_simplepie_grab_and_add($feedurl, $values, &$result, $force_refresh = FALSE) {
   $parsed = _datapoint_simplepie_parse($feedurl, $force_refresh);
 
   if (empty($parsed->items)) {
     return;
+  }
+
+  if (!empty($values)) {
+    $iterator   = $values[0]['tag']['tag'];
+    $statevalue = $values[0]['value'];
+  }
+  else {
+    $iterator   = '';
+    $statevalue = '';
   }
 
   $length = count($parsed->items);
@@ -213,7 +189,7 @@ function _datapoint_simplepie_grab_and_add($feedurl, &$result, $iterator = NULL,
     $item = $parsed->items[$i];
     //Create/get result objects
 
-    $point = $result->point(md5($item->options->guid));
+    $point  = $result->point(md5($item->options->guid));
     $vertex = new DatapointVertex($item->options->timestamp);
 
     //If the point was created now it needs to get a name
