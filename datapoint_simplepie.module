@@ -44,8 +44,9 @@ function _datapoint_simplepie_source_configuration($configuration) {
   }
   $settings['simplepie_update_limit'] = array(
     '#type'          => 'select',
-    '#options' => drupal_map_assoc(array(1800, 3600, 21600, 43200, 86400, 604800, 2419200), 'format_interval'),
+    '#options'       => drupal_map_assoc(array(60, 300, 900, 1800, 3600, 21600, 43200, 86400, 604800, 2419200), 'format_interval'),
     '#title'         => t('Update limit'),
+    '#description'   => t("The source will wait at least the specified time between two updates."),
     '#default_value' => $configuration['update limit'],
   );
   $settings['simplepie_do_cleanup'] = array(
