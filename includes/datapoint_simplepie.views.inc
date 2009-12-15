@@ -105,7 +105,7 @@ function datapoint_simplepie_views_data_alter(&$data) {
       'base' => 'datapoint_simplepie_vertex',
       'base field' => 'vid',
       'relationship field' => 'vid',
-      'datapoint source type' => 'feedsimplepie',
+      'datapoint source type' => 'feedsimplepie', //TODO: Fix - this is broken
       'handler' => 'views_handler_relationship_datapoint_vertex',
       'label' => t('Datapoint Simplepie data'),
     ),

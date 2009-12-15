@@ -79,28 +79,31 @@ function _datapoint_simplepie_update_check($since_last_update, $source) {
 }
 
 function datapoint_simplepie_datapoint_cleanup() {
-  $sources = db_query("SELECT sid, name, configuration FROM {datapoint_source} WHERE source_type = 'feedsimplepie'");
+  $sources = db_query("SELECT sid, name, configuration FROM {datapoint_source}");
   while ($source = db_fetch_object($sources)) {
     $source->configuration = unserialize($source->configuration);
-    // Check if the source is marked to be cleaned.
-    if (!$source->configuration['source configuration']['no cleanup']) {
+    if ($source->configuration['parser'] == 'datapoint_simplepie' && !$source->configuration['source configuration']['no cleanup']) {
       $feedurl = $source->configuration['source configuration']['feed url'];
       $tags    = module_exists('sets') ? sets_string_get_tags($feedurl) : array();
       if (!empty($tags)) {
         $key = $tags[0];
         $removed = 0;
-        $result = db_query("SELECT v.statevalue, COUNT(v.vid) AS amount FROM {datapoint} d INNER JOIN {datapoint_simplepie_vertex} v ON d.vid = v.vid WHERE d.sid = %d AND v.iterator = '%s' GROUP BY v.statevalue HAVING amount > 15", $source->sid, $key);
+        $result = db_query("SELECT v.statevalue, COUNT(d.pid) AS amount FROM {datapoint} d INNER JOIN {datapoint_simplepie_vertex} v ON d.vid = v.vid WHERE d.sid = %d AND v.iterator = '%s' GROUP BY v.statevalue HAVING amount > 15", $source->sid, $key);
         while ($state = db_fetch_object($result)) {
-          $result_to_remove = db_query_range("SELECT d.pid, d.nid FROM {datapoint} d INNER JOIN {datapoint_simplepie_vertex} v ON d.vid = v.vid WHERE d.sid = %d AND v.iterator = '%s' AND v.statevalue = %s ORDER BY v.published ASC", $source->sid, $key, $state->statevalue, 0, $state->amount - 10);
+          $result_to_remove = db_query_range("SELECT d.pid, d.nid FROM {datapoint} d INNER JOIN {datapoint_simplepie_vertex} v ON d.vid = v.vid WHERE d.sid = %d AND v.iterator = '%s' AND v.statevalue = '%s' ORDER BY v.published ASC", $source->sid, $key, $state->statevalue, 0, $state->amount - 10);
 
           $pids = array();
           while ($to_remove = db_fetch_object($result_to_remove)) {
             $pids[] = $to_remove->pid;
-            node_delete($to_remove->nid);
+            if ($to_remove->nid != 0) {
+              node_delete($to_remove->nid);
+            }
           }
-          $placeholders = db_placeholders($pids);
-          db_query("DELETE FROM {datapoint} WHERE pid IN ($placeholders)", $pids);
-          db_query("DELETE FROM {datapoint_simplepie_vertex} WHERE pid IN ($placeholders)", $pids);
+          if (!empty($pids)) {
+            $placeholders = db_placeholders($pids);
+            db_query("DELETE FROM {datapoint} WHERE pid IN ($placeholders)", $pids);
+            db_query("DELETE FROM {datapoint_simplepie_vertex} WHERE pid IN ($placeholders)", $pids);
+          }
           $removed = $removed + $state->amount - 10;
         }
         if ($removed) {
@@ -116,7 +119,9 @@ function datapoint_simplepie_datapoint_cleanup() {
           $pids = array();
           while ($to_remove = db_fetch_object($result_to_remove)) {
             $pids[] = $to_remove->pid;
-            node_delete($to_remove->nid);
+            if ($to_remove->nid != 0) {
+              node_delete($to_remove->nid);
+            }
           }
 
           $placeholders = db_placeholders($pids);
