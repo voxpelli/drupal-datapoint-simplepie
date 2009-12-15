@@ -103,11 +103,8 @@ function datapoint_simplepie_datapoint_cleanup() {
             $placeholders = db_placeholders($pids);
             db_query("DELETE FROM {datapoint} WHERE pid IN ($placeholders)", $pids);
             db_query("DELETE FROM {datapoint_simplepie_vertex} WHERE pid IN ($placeholders)", $pids);
+            watchdog('datapoint simplepie', 'Removed @count items from @url', array('@count' => count($placeholders), '@url' => $feedurl));
           }
-          $removed = $removed + $state->amount - 10;
-        }
-        if ($removed) {
-          watchdog('datapoint simplepie', 'Removed @count items from @url', array('@count' => $removed, '@url' => $feedurl));
         }
         $removed_status = TRUE;
       }
