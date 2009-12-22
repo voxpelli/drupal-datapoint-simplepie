@@ -103,7 +103,7 @@ function datapoint_simplepie_datapoint_cleanup() {
             $placeholders = db_placeholders($pids);
             db_query("DELETE FROM {datapoint} WHERE pid IN ($placeholders)", $pids);
             db_query("DELETE FROM {datapoint_simplepie_vertex} WHERE pid IN ($placeholders)", $pids);
-            watchdog('datapoint simplepie', 'Removed @count items from @url', array('@count' => count($placeholders), '@url' => $feedurl));
+            watchdog('datapoint simplepie', 'Removed @count items from @url', array('@count' => count($pids), '@url' => $feedurl));
           }
         }
         $removed_status = TRUE;
@@ -122,10 +122,10 @@ function datapoint_simplepie_datapoint_cleanup() {
           }
 
           $placeholders = db_placeholders($pids);
-          db_query("DELETE FROM {datapoint} WHERE pid IN (' . $placeholders . ')", $pids);
-          db_query("DELETE FROM {datapoint_simplepie_vertex} WHERE pid IN (' . $placeholders . ')", $pids);
+          db_query("DELETE FROM {datapoint} WHERE pid IN ($placeholders)", $pids);
+          db_query("DELETE FROM {datapoint_simplepie_vertex} WHERE pid IN ($placeholders)", $pids);
+          watchdog('datapoint simplepie', 'Removed @count items from @url', array('@count' => count($pids), '@url' => $feedurl));
         }
-        watchdog('datapoint simplepie', 'Removed @count items from @url', array('@count' => $amount - 10, '@url' => $feedurl));
       }
     }
   }
@@ -178,7 +178,10 @@ function _datapoint_simplepie_fetch($source, &$result) {
     _datapoint_prewrite($source, 'datapoint_source');
     db_query("UPDATE {datapoint_source} SET configuration='%s' WHERE sid=%d", $source['configuration'], $source['sid']);
 
-    if ($results['count'] !== 0) {
+    if ($results['count'] == 1) {
+      watchdog('datapoint simplepie', 'Fetched feed from %url', array('%url' => $feedurl));
+    }
+    elseif ($results['count'] !== 0) {
       watchdog('datapoint simplepie', 'Fetched @count feeds from %url', array('@count' => $count, '%url' => $feedurl));
       $return = FALSE;
     }
