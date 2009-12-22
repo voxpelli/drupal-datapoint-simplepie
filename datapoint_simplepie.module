@@ -103,7 +103,12 @@ function datapoint_simplepie_datapoint_cleanup() {
             $placeholders = db_placeholders($pids);
             db_query("DELETE FROM {datapoint} WHERE pid IN ($placeholders)", $pids);
             db_query("DELETE FROM {datapoint_simplepie_vertex} WHERE pid IN ($placeholders)", $pids);
-            watchdog('datapoint simplepie', 'Removed @count items from @url', array('@count' => count($pids), '@url' => $feedurl));
+            watchdog('datapoint simplepie', 'Removed @count items from @url, [@iterator] = @value', array(
+              '@count'    => count($pids),
+              '@url'      => $feedurl,
+              '@iterator' => $key,
+              '@value'    => $state->statevalue,
+            ));
           }
         }
         $removed_status = TRUE;
@@ -132,30 +137,6 @@ function datapoint_simplepie_datapoint_cleanup() {
 }
 
 /**
- * Check for time limits in fetch processing.
- *
- * @return
- *   Number of seconds left, zero if none.
- */
-function _datapoint_simplepie_fetch_time() {
-  static $time_limit;
-
-  if (!$time_limit) {
-    $max = ini_get('max_execution_time');
-
-    if (!$max) {
-      $max = 240;
-    }
-
-    $time_limit = time() + 0.15 * $max;
-
-    // However, check for left time, maybe some other cron processing already occured
-    $time_limit = min($time_limit, variable_get('cron_semaphore', time()) + $max);
-  }
-  return max($time_limit - time(), 0);
-}
-
-/**
  * Assigned in datapoint_simplepie_datapoint_parser() - fetches the source
  */
 function _datapoint_simplepie_fetch($source, &$result) {
@@ -163,27 +144,28 @@ function _datapoint_simplepie_fetch($source, &$result) {
 
   $feedurl = $source['source configuration']['feed url'];
   if (module_exists('sets')) {
-    //TODO: Loop a few each time and check _datapoint_simplepie_fetch_time() for time left
     $force_refresh = isset($source['force refresh']) && $source['force refresh'];
     $set_offset = isset($source['source configuration']['set_offset']) ? $source['source configuration']['set_offset'] : NULL;
     $count = 0;
 
     do {
       $results = sets_string_iterate_subset($feedurl, '_datapoint_simplepie_grab_and_add', 5, $set_offset, $result, $force_refresh);
-      $count += $results['count'];
-    } while (_datapoint_simplepie_fetch_time() && $results['count'] > 0);
+      $count += ($results['count'] === FALSE ? 1 : $results['count']);
+    } while (_datapoint_cron_time() && $results['count'] == 5);
 
-    $source['source configuration']['set_offset'] = $set_offset;
-    unset($source['force refresh']);
-    _datapoint_prewrite($source, 'datapoint_source');
-    db_query("UPDATE {datapoint_source} SET configuration='%s' WHERE sid=%d", $source['configuration'], $source['sid']);
-
-    if ($results['count'] == 1) {
-      watchdog('datapoint simplepie', 'Fetched feed from %url', array('%url' => $feedurl));
+    if ($results['count'] !== FALSE) {
+      $source['source configuration']['set_offset'] = $set_offset;
+      unset($source['force refresh']);
+      _datapoint_prewrite($source, 'datapoint_source');
+      db_query("UPDATE {datapoint_source} SET configuration='%s' WHERE sid=%d", $source['configuration'], $source['sid']);
     }
-    elseif ($results['count'] !== 0) {
+
+    if ($results['count'] == 5) {
       watchdog('datapoint simplepie', 'Fetched @count feeds from %url', array('@count' => $count, '%url' => $feedurl));
       $return = FALSE;
+    }
+    elseif ($results['count'] === FALSE) {
+      watchdog('datapoint simplepie', 'Fetched feed from %url', array('%url' => $feedurl));
     }
     else {
       watchdog('datapoint simplepie', 'Finished fetching from %url, last batch was @count feeds', array('@count' => $count, '%url' => $feedurl));
